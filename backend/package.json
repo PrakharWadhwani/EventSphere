@@ -1,0 +1,32 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "A single, simple platform where KIIT students can discover society events and workshops, and society leads can post them, replacing fragmented WhatsApp/email/Instagram announcements.",
+  "keywords": [
+    "Society",
+    "Management",
+    "Event",
+    "management"
+  ],
+  "homepage": "https://github.com/PrakharWadhwani/EventSphere#readme",
+  "bugs": {
+    "url": "https://github.com/PrakharWadhwani/EventSphere/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PrakharWadhwani/EventSphere.git"
+  },
+  "license": "ISC",
+  "author": "Zeeshan Pervez",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
