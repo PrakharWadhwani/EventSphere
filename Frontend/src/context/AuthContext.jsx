@@ -1,113 +1,100 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { api, getToken, setToken } from '../api/client';
+import { followSociety, unfollowSociety } from '../api/events';
 
 const AuthContext = createContext(null);
 
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('eventsphere_user');
-    return savedUser
-      ? JSON.parse(savedUser)
-      : {
-          name: '',
-          email: '',
-          role: 'student', // 'student' | 'admin'
-          interests: [],
-        };
-  });
+  const [user, setUser] = useState(null);
+  const [config, setConfig] = useState({ devLoginEnabled: true, interestTags: [] });
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('eventsphere_auth') === 'true';
-  });
-
+  // Restore session from a stored token on first load.
   useEffect(() => {
-    localStorage.setItem('eventsphere_user', JSON.stringify(user));
-    localStorage.setItem('eventsphere_auth', isAuthenticated ? 'true' : 'false');
-  }, [user, isAuthenticated]);
-
-  /**
-   * Validates @kiit.ac.in domain email and sets up user session.
-   * Throws Error if domain is invalid.
-   */
-  const loginWithGoogleToken = (decodedTokenPayload, targetRole = 'student') => {
-    const email = decodedTokenPayload?.email || '';
-    if (!email.toLowerCase().endsWith('@kiit.ac.in')) {
-      throw new Error('Access Restricted: Only @kiit.ac.in Google accounts are allowed.');
-    }
-
-    const newUser = {
-      name: decodedTokenPayload.name || email.split('@')[0],
-      email: email,
-      role: targetRole,
-      interests: user.interests || [],
+    let cancelled = false;
+    (async () => {
+      try {
+        const cfg = await api('/auth/config');
+        if (!cancelled) setConfig(cfg);
+      } catch {
+        // Backend down; pages will surface the error when they fetch.
+      }
+      if (getToken()) {
+        try {
+          const { user: me } = await api('/auth/me');
+          if (!cancelled) setUser(me);
+        } catch {
+          setToken(null);
+        }
+      }
+      if (!cancelled) setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
     };
+  }, []);
 
-    setUser(newUser);
-    setIsAuthenticated(true);
-    return newUser;
+  const finishLogin = ({ token, user: me }) => {
+    setToken(token);
+    setUser(me);
+    return me;
   };
 
-  /**
-   * Helper for simulated sign-in when Google Client ID is not configured in local dev environment
-   */
-  const simulatedLogin = (email, name = 'KIITian User', targetRole = 'student') => {
-    if (!email.toLowerCase().endsWith('@kiit.ac.in')) {
-      throw new Error('Access Restricted: Only @kiit.ac.in Google accounts are allowed.');
+  /** Google ID token login. The server verifies the token and the @kiit.ac.in domain. */
+  const loginWithGoogle = async (credential, { asAdmin = false, societyId } = {}) =>
+    finishLogin(await api('/auth/google', { method: 'POST', body: { credential, asAdmin, societyId } }));
+
+  /** Email-only login, available when the server has dev login enabled. */
+  const devLogin = async (email, { asAdmin = false, societyId, name } = {}) => {
+    if (!email.toLowerCase().trim().endsWith('@kiit.ac.in')) {
+      throw new Error('Access Restricted: Only @kiit.ac.in accounts are allowed.');
     }
-
-    const newUser = {
-      name: name || email.split('@')[0],
-      email: email,
-      role: targetRole,
-      interests: user.interests || [],
-    };
-
-    setUser(newUser);
-    setIsAuthenticated(true);
-    return newUser;
+    return finishLogin(await api('/auth/dev-login', { method: 'POST', body: { email, name, asAdmin, societyId } }));
   };
 
-  const updateInterests = (interestsArray) => {
-    setUser((prev) => ({ ...prev, interests: interestsArray }));
+  const updateInterests = async (interests) => {
+    const { user: me } = await api('/auth/me', { method: 'PATCH', body: { interests } });
+    setUser(me);
+    return me;
   };
 
-  const toggleRole = () => {
-    setUser((prev) => ({
-      ...prev,
-      role: prev.role === 'admin' ? 'student' : 'admin',
-    }));
-  };
+  const toggleFollow = useCallback(
+    async (societyId) => {
+      const isFollowing = user?.following?.includes(societyId);
+      const res = isFollowing ? await unfollowSociety(societyId) : await followSociety(societyId);
+      setUser(res.user);
+      return res;
+    },
+    [user]
+  );
 
   const logout = () => {
-    setUser({ name: '', email: '', role: 'student', interests: [] });
-    setIsAuthenticated(false);
-    localStorage.removeItem('eventsphere_user');
-    localStorage.removeItem('eventsphere_auth');
+    setToken(null);
+    setUser(null);
   };
 
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'mock-google-client-id';
+  const value = {
+    user,
+    config,
+    isLoading,
+    isAuthenticated: !!user,
+    name: user?.name || '',
+    email: user?.email || '',
+    isAdmin: !!user?.isAdmin,
+    interests: user?.interests || [],
+    following: user?.following || [],
+    loginWithGoogle,
+    devLogin,
+    updateInterests,
+    toggleFollow,
+    logout,
+  };
 
-  return (
-    <GoogleOAuthProvider clientId={googleClientId}>
-      <AuthContext.Provider
-        value={{
-          user,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          interests: user.interests,
-          isAuthenticated,
-          loginWithGoogleToken,
-          simulatedLogin,
-          updateInterests,
-          toggleRole,
-          logout,
-        }}
-      >
-        {children}
-      </AuthContext.Provider>
-    </GoogleOAuthProvider>
-  );
+  const content = <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return GOOGLE_CLIENT_ID ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{content}</GoogleOAuthProvider> : content;
 };
 
 export const useAuth = () => {
