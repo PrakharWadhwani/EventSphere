@@ -1,7 +1,38 @@
-import React, { useState } from 'react';
-import { PlusCircle, Upload, CheckCircle, AlertTriangle, Link as LinkIcon, Calendar, Clock, MapPin, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { PlusCircle, Upload, CheckCircle, Link as LinkIcon, MapPin, Sparkles, Tag } from 'lucide-react';
+import { createEvent, updateEvent, getEvent } from '../../api/events';
+import { useAuth } from '../../context/AuthContext';
+import { Spinner, ErrorBanner } from '../../components/Spinner';
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+/** Downscales an uploaded image to a JPEG data URL (max 1200px wide) so it fits in the API payload. */
+const fileToBannerDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1200 / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read that image.'));
+    };
+    img.src = url;
+  });
 
 export const CreateEvent = () => {
+  const { id } = useParams();
+  const isEdit = !!id;
+  const navigate = useNavigate();
+  const { config } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
     category: 'Technical',
@@ -13,11 +44,38 @@ export const CreateEvent = () => {
     description: '',
     registrationLink: '',
     status: 'Published',
+    tags: [],
   });
 
   const [imagePreview, setImagePreview] = useState(null);
   const [errors, setErrors] = useState({});
-  const [successMessage, setSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [isLoading, setIsLoading] = useState(isEdit);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    getEvent(id)
+      .then((event) => {
+        setFormData({
+          title: event.title,
+          category: event.category,
+          bannerImageUrl: event.bannerImageUrl || '',
+          venue: event.venue,
+          date: event.date,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          description: event.description,
+          registrationLink: event.registrationLink,
+          status: event.status,
+          tags: event.tags || [],
+        });
+        setImagePreview(event.bannerImageUrl || null);
+      })
+      .catch((err) => setSubmitError(err.message))
+      .finally(() => setIsLoading(false));
+  }, [id, isEdit]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -27,12 +85,26 @@ export const CreateEvent = () => {
     }
   };
 
-  const handleImageUpload = (e) => {
+  const toggleTag = (tag) =>
+    setFormData((prev) => ({
+      ...prev,
+      tags: prev.tags.includes(tag) ? prev.tags.filter((t) => t !== tag) : [...prev.tags, tag],
+    }));
+
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const previewUrl = URL.createObjectURL(file);
-      setImagePreview(previewUrl);
-      setFormData((prev) => ({ ...prev, bannerImageUrl: previewUrl }));
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setErrors((prev) => ({ ...prev, bannerImageUrl: 'Image must be 5MB or smaller.' }));
+      return;
+    }
+    try {
+      const dataUrl = await fileToBannerDataUrl(file);
+      setImagePreview(dataUrl);
+      setFormData((prev) => ({ ...prev, bannerImageUrl: dataUrl }));
+      setErrors((prev) => ({ ...prev, bannerImageUrl: '' }));
+    } catch (err) {
+      setErrors((prev) => ({ ...prev, bannerImageUrl: err.message }));
     }
   };
 
@@ -40,7 +112,7 @@ export const CreateEvent = () => {
     try {
       new URL(url);
       return true;
-    } catch (_) {
+    } catch {
       return false;
     }
   };
@@ -53,6 +125,9 @@ export const CreateEvent = () => {
     if (!formData.date) newErrors.date = 'Date is required.';
     if (!formData.startTime) newErrors.startTime = 'Start time is required.';
     if (!formData.endTime) newErrors.endTime = 'End time is required.';
+    else if (formData.startTime && formData.endTime <= formData.startTime) {
+      newErrors.endTime = 'End time must be after start time.';
+    }
     if (!formData.description.trim()) newErrors.description = 'Description is required.';
     
     if (!formData.registrationLink.trim()) {
@@ -65,34 +140,32 @@ export const CreateEvent = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSuccessMessage(false);
+    setSuccessMessage('');
+    setSubmitError('');
 
     if (!validateForm()) {
       return;
     }
 
-    // Output JSON payload strictly adhering to required schema
-    const payload = {
-      title: formData.title,
-      category: formData.category,
-      bannerImageUrl: formData.bannerImageUrl || 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80',
-      venue: formData.venue,
-      date: formData.date,
-      startTime: formData.startTime,
-      endTime: formData.endTime,
-      description: formData.description,
-      registrationLink: formData.registrationLink,
-      status: formData.status,
-    };
-
-    console.log('--- EVENT CREATOR FORM SUBMISSION JSON ---');
-    console.log(JSON.stringify(payload, null, 2));
-    console.log('-----------------------------------------');
-
-    setSuccessMessage(true);
+    setIsSaving(true);
+    try {
+      const { event, notified } = isEdit ? await updateEvent(id, formData) : await createEvent(formData);
+      const pushNote = notified ? ` ${notified} follower device${notified === 1 ? '' : 's'} notified.` : '';
+      setSuccessMessage(
+        `${event.status === 'Draft' ? 'Draft saved' : isEdit ? 'Event updated' : 'Event published'}.${pushNote}`
+      );
+      setTimeout(() => navigate('/admin'), 1200);
+    } catch (err) {
+      if (err.details) setErrors(err.details);
+      setSubmitError(err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (isLoading) return <Spinner />;
 
   return (
     <div className="max-w-4xl mx-auto py-6">
@@ -104,25 +177,28 @@ export const CreateEvent = () => {
             <PlusCircle className="w-3.5 h-3.5" />
             Society Event Creator
           </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">
-            Create & Publish Event
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            {isEdit ? 'Edit Event' : 'Create & Publish Event'}
           </h1>
           <p className="text-sm text-slate-400">
-            Fill in the event metadata below to generate structured JSON for backend ingestion.
+            Published events appear in the student feed and notify your followers.
           </p>
         </div>
       </div>
 
       {/* Success Notification */}
       {successMessage && (
-        <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3 animate-fade-in">
+        <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-bold text-emerald-300">Event Structured JSON Logged Successfully!</h4>
-            <p className="text-xs text-emerald-200/80 mt-0.5">
-              Check your browser developer console (F12) to inspect the logged JSON object.
-            </p>
+            <h4 className="text-sm font-bold text-emerald-300">{successMessage}</h4>
+            <p className="text-xs text-emerald-200/80 mt-0.5">Returning to your dashboard…</p>
           </div>
+        </div>
+      )}
+      {submitError && (
+        <div className="mb-6">
+          <ErrorBanner message={submitError} />
         </div>
       )}
 
@@ -190,14 +266,43 @@ export const CreateEvent = () => {
             />
             {errors.description && <p className="text-[11px] text-rose-400">{errors.description}</p>}
           </div>
+
+          {/* Tags (drive "Recommended for You") */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+              <Tag className="w-3.5 h-3.5 text-indigo-400" /> Interest tags
+              <span className="font-normal text-slate-500">(used to recommend this event)</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(config.interestTags || []).map((tag) => {
+                const on = formData.tags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleTag(tag)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                      on
+                        ? 'bg-indigo-600/25 border-indigo-500 text-indigo-200'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    #{tag}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Banner Upload Block */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
             <Upload className="w-4 h-4 text-purple-400" />
-            Banner Image (Client Preview)
+            Banner Image
           </h3>
+          {errors.bannerImageUrl && <p className="text-[11px] text-rose-400">{errors.bannerImageUrl}</p>}
 
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="w-full sm:w-1/2 h-44 border-2 border-dashed border-slate-700 rounded-2xl flex flex-col items-center justify-center p-4 text-center hover:border-indigo-500 bg-slate-950/60 transition-all relative">
@@ -350,13 +455,23 @@ export const CreateEvent = () => {
         </div>
 
         {/* Submit Action */}
-        <div className="flex justify-end pt-2">
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-slate-700 text-slate-300 hover:text-white text-sm font-semibold"
+          >
+            Cancel
+          </button>
           <button
             type="submit"
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-indigo-600 to-purple-600 hover:from-amber-400 hover:to-purple-500 text-white font-bold text-sm shadow-xl shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all"
+            disabled={isSaving}
+            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-indigo-600 to-purple-600 hover:from-amber-400 hover:to-purple-500 text-white font-bold text-sm shadow-xl shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-60"
           >
             <PlusCircle className="w-5 h-5" />
-            <span>Save & Log Event JSON</span>
+            <span>
+              {isSaving ? 'Saving…' : formData.status === 'Draft' ? 'Save Draft' : isEdit ? 'Save Changes' : 'Publish Event'}
+            </span>
           </button>
         </div>
 
