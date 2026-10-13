@@ -93,8 +93,8 @@ export function buildSeed(now = new Date()) {
   const societies = SOCIETIES.map((s) => ({ ...s }));
 
   const events = TEMPLATES.map(([societyId, title, category, tags, imageId, description], i) => {
-    // First 4 events happen today; the rest spread across ~6 weeks.
-    const offset = i < 4 ? 0 : 1 + ((i * 7) % 42);
+    // Every 11th event (mixed societies) happens today; the rest spread across ~6 weeks.
+    const offset = i % 11 === 0 ? 0 : 1 + ((i * 7) % 42);
     const date = new Date(now);
     date.setDate(date.getDate() + offset);
     const startHour = 9 + (i % 9);
