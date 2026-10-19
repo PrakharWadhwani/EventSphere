@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search as SearchIcon, X } from 'lucide-react';
 import { searchEvents, getSocieties } from '../../api/events';
@@ -26,12 +26,19 @@ export const SearchPage = () => {
     type: params.get('type') || '',
   };
 
-  const setFilter = (key, value) => {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value);
-    else next.delete(key);
-    setParams(next, { replace: true });
-  };
+  const setFilter = useCallback(
+    (key, value) =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value) next.set(key, value);
+          else next.delete(key);
+          return next;
+        },
+        { replace: true }
+      ),
+    [setParams]
+  );
 
   useEffect(() => {
     getSocieties().then(setSocieties).catch(() => {});
@@ -40,16 +47,16 @@ export const SearchPage = () => {
   // Debounce typing into the URL so results update as you type.
   useEffect(() => {
     const t = setTimeout(() => {
-      if (query !== filters.q) setFilter('q', query.trim());
+      if (query.trim() !== filters.q) setFilter('q', query.trim());
     }, 250);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, filters.q, setFilter]);
 
   const paramKey = params.toString();
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    searchEvents(filters)
+    searchEvents(Object.fromEntries(new URLSearchParams(paramKey)))
       .then((list) => {
         if (!cancelled) {
           setResults(list);
