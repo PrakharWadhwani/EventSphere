@@ -34,6 +34,8 @@ app.use(
         "connect-src": ["'self'", "https://accounts.google.com/gsi/"],
         "style-src": ["'self'", "'unsafe-inline'", "https://accounts.google.com/gsi/style"],
         "img-src": ["'self'", "data:", "https:"],
+        // HTTPS hosts redirect anyway; upgrading breaks plain-http local testing.
+        "upgrade-insecure-requests": null,
       },
     },
     // Google Sign-In opens a popup that must be able to message this window.
@@ -46,10 +48,12 @@ app.use(express.json({ limit: "5mb" }));
 
 const limiter = (limit, windowMs = 15 * 60 * 1000) =>
   rateLimit({ windowMs, limit, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Too many requests, slow down." } });
-app.use("/api/v1/auth/google", limiter(30));
-app.use("/api/v1/auth/dev-login", limiter(30));
+// Limits are per IP. A whole classroom on campus Wi-Fi can share one IP, so keep them generous.
+const LOGIN_LIMIT = Number(process.env.LOGIN_RATE_LIMIT) || 200;
+app.use("/api/v1/auth/google", limiter(LOGIN_LIMIT));
+app.use("/api/v1/auth/dev-login", limiter(LOGIN_LIMIT));
 app.use("/api/v1/admin", limiter(300));
-app.use("/api/v1", limiter(Number(process.env.RATE_LIMIT_PER_MIN) || 600, 60 * 1000));
+app.use("/api/v1", limiter(Number(process.env.RATE_LIMIT_PER_MIN) || 3000, 60 * 1000));
 
 app.use("/api/v1", appRouter);
 app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d", immutable: true }));
