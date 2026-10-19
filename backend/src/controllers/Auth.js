@@ -1,18 +1,23 @@
-import { db, save, newId } from "../lib/db.js";
-import { isKiitEmail, signToken, adminSocietyFor, publicUser } from "../lib/auth.js";
+import { db, newId, getUserById } from "../lib/db.js";
+import { isKiitEmail, signToken, adminSocietyFor, publicUser, devLoginEnabled } from "../lib/auth.js";
 import { INTEREST_TAGS } from "../lib/seed.js";
-
-const devLoginEnabled = () => process.env.ALLOW_DEV_LOGIN !== "false";
 
 /** Verifies a Google ID token (from Google Identity Services) with Google's tokeninfo endpoint. */
 async function verifyGoogleCredential(credential) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  // Without a client ID we can't check the token's audience, so a token minted for any
+  // other Google app would be accepted. Refuse instead.
+  if (!clientId) {
+    const err = new Error("Google login is not configured on this server.");
+    err.status = 503;
+    throw err;
+  }
   const res = await fetch(
     `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
   );
   if (!res.ok) throw new Error("Invalid Google credential");
   const info = await res.json();
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (clientId && info.aud !== clientId) throw new Error("Google credential was issued for another app");
+  if (info.aud !== clientId) throw new Error("Google credential was issued for another app");
   if (info.email_verified !== "true" && info.email_verified !== true) {
     throw new Error("Google email is not verified");
   }
@@ -21,40 +26,30 @@ async function verifyGoogleCredential(credential) {
 
 /** Finds or creates the user and resolves their admin status. */
 function upsertUser({ email, name, picture }, { asAdmin, societyId }) {
-  const store = db();
+  const d = db();
   const normalized = email.toLowerCase().trim();
-  let user = store.users.find((u) => u.email === normalized);
-  if (!user) {
-    user = {
-      id: newId("usr"),
-      email: normalized,
-      name: name || normalized.split("@")[0],
-      picture: picture || null,
-      isAdmin: false,
-      societyId: null,
-      interests: [],
-      following: [],
-      onboarded: false,
-      createdAt: new Date().toISOString(),
-    };
-    store.users.push(user);
+  let row = d.prepare("SELECT id FROM users WHERE email = ?").get(normalized);
+  if (!row) {
+    row = { id: newId("usr") };
+    d.prepare(
+      "INSERT INTO users (id, email, name, picture, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(row.id, normalized, name || normalized.split("@")[0], picture || null, new Date().toISOString());
   } else if (picture) {
-    user.picture = picture;
+    d.prepare("UPDATE users SET picture = ? WHERE id = ?").run(picture, row.id);
   }
 
   if (asAdmin) {
     const configured = adminSocietyFor(normalized);
     const chosen = configured ?? (devLoginEnabled() ? societyId : undefined);
-    if (!chosen || !store.societies.some((s) => s.id === chosen)) {
+    const exists = chosen && d.prepare("SELECT 1 FROM societies WHERE id = ?").get(chosen);
+    if (!exists) {
       const err = new Error("This account is not registered as a society representative.");
       err.status = 403;
       throw err;
     }
-    user.isAdmin = true;
-    user.societyId = chosen;
+    d.prepare("UPDATE users SET is_admin = 1, society_id = ? WHERE id = ?").run(chosen, row.id);
   }
-  save();
-  return user;
+  return getUserById(row.id);
 }
 
 const respond = (res, user) => res.json({ token: signToken(user), user: publicUser(user) });
@@ -73,12 +68,12 @@ export const googleLogin = async function (req, res) {
   }
 };
 
-/** Email-only login for local development and demos (disable with ALLOW_DEV_LOGIN=false). */
+/** Email-only login for local development and demos. */
 export const devLogin = function (req, res) {
   if (!devLoginEnabled()) return res.status(404).json({ error: "Dev login is disabled" });
   try {
     const { email, name, asAdmin, societyId } = req.body || {};
-    if (!email || !isKiitEmail(email)) {
+    if (typeof email !== "string" || !isKiitEmail(email)) {
       return res.status(403).json({ error: "Access restricted: only @kiit.ac.in accounts are allowed." });
     }
     respond(res, upsertUser({ email, name }, { asAdmin, societyId }));
@@ -101,16 +96,20 @@ export const getMe = function (req, res) {
 
 export const updateMe = function (req, res) {
   const { interests, name } = req.body || {};
+  const d = db();
   if (interests !== undefined) {
     if (!Array.isArray(interests) || interests.length < 3 || interests.length > 8) {
       return res.status(400).json({ error: "Select between 3 and 8 interest tags." });
     }
     const invalid = interests.filter((t) => !INTEREST_TAGS.includes(t));
     if (invalid.length) return res.status(400).json({ error: `Unknown tags: ${invalid.join(", ")}` });
-    req.user.interests = [...new Set(interests)];
-    req.user.onboarded = true;
+    d.prepare("UPDATE users SET interests = ?, onboarded = 1 WHERE id = ?").run(
+      JSON.stringify([...new Set(interests)]),
+      req.user.id
+    );
   }
-  if (typeof name === "string" && name.trim()) req.user.name = name.trim().slice(0, 80);
-  save();
-  res.json({ user: publicUser(req.user) });
+  if (typeof name === "string" && name.trim()) {
+    d.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim().slice(0, 80), req.user.id);
+  }
+  res.json({ user: publicUser(getUserById(req.user.id)) });
 };

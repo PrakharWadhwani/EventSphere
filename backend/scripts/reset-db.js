@@ -1,7 +1,7 @@
-// Regenerates data/db.json from the seed (dates relative to today).
-import "dotenv/config";
+// Wipes all data and re-seeds (dates relative to today). Stop the server first.
+import "../src/lib/env.js";
 import { loadDb, resetDb } from "../src/lib/db.js";
 
 loadDb();
-await resetDb();
+resetDb();
 console.log("Database reset with fresh seed data.");

@@ -1,14 +1,17 @@
-import { db, save } from "../lib/db.js";
+import { db, toSociety, toEvent, getUserById } from "../lib/db.js";
 import { publicUser } from "../lib/auth.js";
-import { withSociety, todayStr } from "./Events.js";
+import { todayStr } from "./Events.js";
+
+const SELECT_SOCIETIES = `SELECT s.*, (SELECT COUNT(*) FROM follows f WHERE f.society_id = s.id) AS followers
+  FROM societies s`;
+
+const withFollowers = (r) => r && { ...toSociety(r), followers: r.followers };
 
 const followerCount = (societyId) =>
-  db().users.filter((u) => (u.following || []).includes(societyId)).length;
-
-const summarize = (s) => ({ ...s, followers: followerCount(s.id) });
+  db().prepare("SELECT COUNT(*) AS n FROM follows WHERE society_id = ?").get(societyId).n;
 
 export const listSocieties = function (_req, res) {
-  res.json({ societies: db().societies.map(summarize) });
+  res.json({ societies: db().prepare(`${SELECT_SOCIETIES} ORDER BY s.name`).all().map(withFollowers) });
 };
 
 /** GET /societies/suggested?tags=Coding,Music — top 3 societies by tag overlap. */
@@ -17,36 +20,38 @@ export const suggestedSocieties = function (req, res) {
     .split(",")
     .filter(Boolean);
   const ranked = db()
-    .societies.map((s) => ({ s, score: s.tags.filter((t) => tags.includes(t)).length }))
+    .prepare(SELECT_SOCIETIES)
+    .all()
+    .map(withFollowers)
+    .map((s) => ({ s, score: s.tags.filter((t) => tags.includes(t)).length }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
-    .map(({ s }) => summarize(s));
+    .map(({ s }) => s);
   res.json({ societies: ranked });
 };
 
 export const getSociety = function (req, res) {
-  const store = db();
-  const society = store.societies.find((s) => s.id === req.params.id);
+  const society = withFollowers(db().prepare(`${SELECT_SOCIETIES} WHERE s.id = ?`).get(req.params.id));
   if (!society) return res.status(404).json({ error: "Society not found" });
-  const today = todayStr();
-  const events = store.events
-    .filter((e) => e.societyId === society.id && e.status === "Published" && e.date >= today)
-    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime))
-    .map(withSociety);
-  res.json({ society: summarize(society), events });
+  const events = db()
+    .prepare(`SELECT e.*, s.name AS society_name FROM events e JOIN societies s ON s.id = e.society_id
+      WHERE e.society_id = ? AND e.status = 'Published' AND e.date >= ? ORDER BY e.date, e.start_time`)
+    .all(society.id, todayStr())
+    .map(toEvent);
+  res.json({ society, events });
 };
 
 export const followSociety = function (req, res) {
-  const society = db().societies.find((s) => s.id === req.params.id);
-  if (!society) return res.status(404).json({ error: "Society not found" });
-  req.user.following = [...new Set([...(req.user.following || []), society.id])];
-  save();
-  res.json({ user: publicUser(req.user), followers: followerCount(society.id) });
+  const exists = db().prepare("SELECT 1 FROM societies WHERE id = ?").get(req.params.id);
+  if (!exists) return res.status(404).json({ error: "Society not found" });
+  db()
+    .prepare("INSERT OR IGNORE INTO follows (user_id, society_id, created_at) VALUES (?, ?, ?)")
+    .run(req.user.id, req.params.id, new Date().toISOString());
+  res.json({ user: publicUser(getUserById(req.user.id)), followers: followerCount(req.params.id) });
 };
 
 export const unfollowSociety = function (req, res) {
-  req.user.following = (req.user.following || []).filter((id) => id !== req.params.id);
-  save();
-  res.json({ user: publicUser(req.user), followers: followerCount(req.params.id) });
+  db().prepare("DELETE FROM follows WHERE user_id = ? AND society_id = ?").run(req.user.id, req.params.id);
+  res.json({ user: publicUser(getUserById(req.user.id)), followers: followerCount(req.params.id) });
 };

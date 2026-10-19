@@ -1,19 +1,21 @@
-import { db, save, newId } from "../lib/db.js";
+import { db, newId, toEvent } from "../lib/db.js";
 import { notifyFollowers } from "../lib/push.js";
 import { CATEGORIES, INTEREST_TAGS } from "../lib/seed.js";
+import { isDataImage, checkDataImage, saveDataImage, removeUpload, UPLOAD_PREFIX } from "../lib/uploads.js";
 
-export const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
+const pad = (n) => String(n).padStart(2, "0");
+const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-const bySoonest = (a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime);
+/** Today's date in the server's timezone (TZ defaults to Asia/Kolkata, see lib/env.js). */
+export const todayStr = () => localDate(new Date());
 
-/** Adds the society name/id so the client never needs a second lookup. */
-export function withSociety(event) {
-  const society = db().societies.find((s) => s.id === event.societyId);
-  return { ...event, society: society ? { id: society.id, name: society.name } : null };
-}
+export const STATUSES = ["Draft", "Published", "Archived"];
+
+// Every event query joins the society so the client never needs a second lookup.
+const SELECT_EVENTS = `SELECT e.*, s.name AS society_name FROM events e JOIN societies s ON s.id = e.society_id`;
+const ORDER_SOONEST = `ORDER BY e.date, e.start_time`;
+
+export const findEvent = (id) => toEvent(db().prepare(`${SELECT_EVENTS} WHERE e.id = ?`).get(id));
 
 /**
  * GET /events?q=&society=&date=&type=&includePast=
@@ -22,62 +24,74 @@ export function withSociety(event) {
  */
 export const listEvents = function (req, res) {
   const { q, society, date, type, includePast } = req.query;
-  const store = db();
+  const where = ["e.status = 'Published'"];
+  const params = [];
   const today = todayStr();
-  let events = store.events.filter((e) => e.status === "Published");
 
-  if (includePast !== "true") events = events.filter((e) => e.date >= today);
-  if (society) events = events.filter((e) => e.societyId === society);
-  if (type && type !== "All") events = events.filter((e) => e.category === type);
+  if (includePast !== "true") {
+    where.push("e.date >= ?");
+    params.push(today);
+  }
+  if (society) {
+    where.push("e.society_id = ?");
+    params.push(String(society));
+  }
+  if (type && type !== "All") {
+    where.push("e.category = ?");
+    params.push(String(type));
+  }
   if (date === "today") {
-    events = events.filter((e) => e.date === today);
+    where.push("e.date = ?");
+    params.push(today);
   } else if (date === "week") {
     const end = new Date();
     end.setDate(end.getDate() + 7);
-    const endStr = end.toISOString().slice(0, 10);
-    events = events.filter((e) => e.date <= endStr);
+    where.push("e.date <= ?");
+    params.push(localDate(end));
   } else if (date) {
-    events = events.filter((e) => e.date === date);
+    where.push("e.date = ?");
+    params.push(String(date));
   }
-  if (q && q.trim()) {
-    const terms = q.toLowerCase().trim().split(/\s+/);
-    const names = new Map(store.societies.map((s) => [s.id, s.name.toLowerCase()]));
-    events = events.filter((e) => {
-      const haystack = `${e.title} ${names.get(e.societyId) || ""} ${e.tags.join(" ")}`.toLowerCase();
-      return terms.every((t) => haystack.includes(t));
-    });
+  // Every search word must appear in the title, society name or tags.
+  if (typeof q === "string" && q.trim()) {
+    for (const term of q.toLowerCase().trim().split(/\s+/).slice(0, 8)) {
+      where.push(`(lower(e.title) LIKE ? ESCAPE '\\' OR lower(s.name) LIKE ? ESCAPE '\\' OR lower(e.tags) LIKE ? ESCAPE '\\')`);
+      const like = `%${term.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+      params.push(like, like, like);
+    }
   }
 
-  res.json({ events: events.sort(bySoonest).map(withSociety) });
+  const rows = db().prepare(`${SELECT_EVENTS} WHERE ${where.join(" AND ")} ${ORDER_SOONEST}`).all(...params);
+  res.json({ events: rows.map(toEvent) });
 };
 
 /** GET /events/recommended — upcoming events ranked by tag overlap with the user's interests. */
 export const recommendedEvents = function (req, res) {
-  const interests = req.user?.interests || [];
-  const following = req.user?.following || [];
-  const today = todayStr();
-  const scored = db()
-    .events.filter((e) => e.status === "Published" && e.date >= today)
+  const interests = req.user.interests || [];
+  const following = new Set(req.user.following || []);
+  const rows = db()
+    .prepare(`${SELECT_EVENTS} WHERE e.status = 'Published' AND e.date >= ? ${ORDER_SOONEST}`)
+    .all(todayStr());
+  const ranked = rows
+    .map(toEvent)
     .map((e) => ({
       e,
-      score:
-        e.tags.filter((t) => interests.includes(t)).length * 2 +
-        (following.includes(e.societyId) ? 1 : 0),
+      score: e.tags.filter((t) => interests.includes(t)).length * 2 + (following.has(e.societyId) ? 1 : 0),
     }))
     .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score || bySoonest(a.e, b.e))
+    .sort((a, b) => b.score - a.score) // stable sort keeps soonest-first within a score
     .slice(0, 9)
-    .map(({ e }) => withSociety(e));
-  res.json({ events: scored });
+    .map(({ e }) => e);
+  res.json({ events: ranked });
 };
 
 export const getEvent = function (req, res) {
-  const event = db().events.find((e) => e.id === req.params.id);
-  const canSeeDraft = req.user?.isAdmin && req.user.societyId === event?.societyId;
-  if (!event || (event.status !== "Published" && !canSeeDraft)) {
+  const event = findEvent(req.params.id);
+  const isOwner = req.user?.isAdmin && req.user.societyId === event?.societyId;
+  if (!event || (event.status !== "Published" && !isOwner)) {
     return res.status(404).json({ error: "Event not found" });
   }
-  res.json({ event: withSociety(event) });
+  res.json({ event });
 };
 
 // ---------- Admin ----------
@@ -104,8 +118,8 @@ function validateEvent(body) {
     endTime: str("endTime"),
     description: str("description", 3000),
     registrationLink: str("registrationLink", 500),
-    status: body.status === "Draft" ? "Draft" : "Published",
-    tags: Array.isArray(body.tags) ? body.tags.filter((t) => INTEREST_TAGS.includes(t)) : [],
+    status: STATUSES.includes(body.status) ? body.status : "Published",
+    tags: Array.isArray(body.tags) ? [...new Set(body.tags.filter((t) => INTEREST_TAGS.includes(t)))] : [],
   };
   if (!data.title) errors.title = "Title is required.";
   if (!CATEGORIES.includes(data.category)) errors.category = "Pick a valid category.";
@@ -116,68 +130,80 @@ function validateEvent(body) {
   else if (data.endTime <= data.startTime) errors.endTime = "End time must be after start time.";
   if (!data.description) errors.description = "Description is required.";
   if (!isValidUrl(data.registrationLink)) errors.registrationLink = "Enter a valid http(s) URL.";
-  if (data.bannerImageUrl && !isValidUrl(data.bannerImageUrl) && !data.bannerImageUrl.startsWith("data:image/")) {
-    errors.bannerImageUrl = "Banner must be an image URL or upload.";
+  const banner = data.bannerImageUrl;
+  if (banner) {
+    if (isDataImage(banner)) {
+      const problem = checkDataImage(banner);
+      if (problem) errors.bannerImageUrl = problem;
+    } else if (!isValidUrl(banner) && !banner.startsWith(UPLOAD_PREFIX)) {
+      errors.bannerImageUrl = "Banner must be an image URL or upload.";
+    }
   }
-  if (data.bannerImageUrl.length > 4_000_000) errors.bannerImageUrl = "Banner image is too large (max ~3MB).";
   return { data, errors };
 }
 
-/** GET /admin/events — all events (drafts included) of the admin's society. */
+const failed = (res, errors) => res.status(400).json({ error: "Validation failed", errors });
+
+/** GET /admin/events — all events (drafts and archived included) of the admin's society. */
 export const adminListEvents = function (req, res) {
-  const events = db()
-    .events.filter((e) => e.societyId === req.user.societyId)
-    .sort(bySoonest)
-    .map(withSociety);
-  res.json({ events });
+  const rows = db().prepare(`${SELECT_EVENTS} WHERE e.society_id = ? ${ORDER_SOONEST}`).all(req.user.societyId);
+  res.json({ events: rows.map(toEvent) });
 };
+
+function writeEvent(id, data, { isNew, userId, societyId }) {
+  const now = new Date().toISOString();
+  const values = [
+    data.title, data.category, JSON.stringify(data.tags), data.bannerImageUrl, data.venue, data.date,
+    data.startTime, data.endTime, data.description, data.registrationLink, data.status, now,
+  ];
+  if (isNew) {
+    db().prepare(`INSERT INTO events (title, category, tags, banner_image_url, venue, date, start_time, end_time,
+      description, registration_link, status, updated_at, id, society_id, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...values, id, societyId, userId, now);
+  } else {
+    db().prepare(`UPDATE events SET title = ?, category = ?, tags = ?, banner_image_url = ?, venue = ?, date = ?,
+      start_time = ?, end_time = ?, description = ?, registration_link = ?, status = ?, updated_at = ?
+      WHERE id = ?`).run(...values, id);
+  }
+}
 
 export const createEvent = async function (req, res) {
   const { data, errors } = validateEvent(req.body || {});
-  if (Object.keys(errors).length) return res.status(400).json({ error: "Validation failed", errors });
+  if (Object.keys(errors).length) return failed(res, errors);
+  if (isDataImage(data.bannerImageUrl)) data.bannerImageUrl = saveDataImage(data.bannerImageUrl);
 
-  const now = new Date().toISOString();
-  const event = {
-    id: newId("evt"),
-    ...data,
-    societyId: req.user.societyId,
-    createdBy: req.user.id,
-    createdAt: now,
-    updatedAt: now,
-  };
-  db().events.push(event);
-  save();
-
+  const id = newId("evt");
+  writeEvent(id, data, { isNew: true, userId: req.user.id, societyId: req.user.societyId });
+  const event = findEvent(id);
   const notified = event.status === "Published" ? await notifyFollowers(event) : 0;
-  res.status(201).json({ event: withSociety(event), notified });
+  res.status(201).json({ event, notified });
 };
 
 export const updateEvent = async function (req, res) {
-  const event = db().events.find((e) => e.id === req.params.id);
-  if (!event) return res.status(404).json({ error: "Event not found" });
-  if (event.societyId !== req.user.societyId) {
+  const existing = findEvent(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Event not found" });
+  if (existing.societyId !== req.user.societyId) {
     return res.status(403).json({ error: "You can only edit your own society's events" });
   }
-  const { data, errors } = validateEvent({ ...event, ...req.body });
-  if (Object.keys(errors).length) return res.status(400).json({ error: "Validation failed", errors });
+  const { data, errors } = validateEvent({ ...existing, ...req.body });
+  if (Object.keys(errors).length) return failed(res, errors);
+  if (isDataImage(data.bannerImageUrl)) data.bannerImageUrl = saveDataImage(data.bannerImageUrl);
+  if (data.bannerImageUrl !== existing.bannerImageUrl) removeUpload(existing.bannerImageUrl);
 
-  const wasPublished = event.status === "Published";
-  Object.assign(event, data, { updatedAt: new Date().toISOString() });
-  save();
-
+  writeEvent(existing.id, data, { isNew: false });
+  const event = findEvent(existing.id);
   // Only the Draft -> Published transition counts as a "new event" for followers.
-  const notified = !wasPublished && event.status === "Published" ? await notifyFollowers(event) : 0;
-  res.json({ event: withSociety(event), notified });
+  const notified = existing.status === "Draft" && event.status === "Published" ? await notifyFollowers(event) : 0;
+  res.json({ event, notified });
 };
 
 export const deleteEvent = function (req, res) {
-  const store = db();
-  const event = store.events.find((e) => e.id === req.params.id);
+  const event = findEvent(req.params.id);
   if (!event) return res.status(404).json({ error: "Event not found" });
   if (event.societyId !== req.user.societyId) {
     return res.status(403).json({ error: "You can only delete your own society's events" });
   }
-  store.events = store.events.filter((e) => e.id !== event.id);
-  save();
+  db().prepare("DELETE FROM events WHERE id = ?").run(event.id);
+  removeUpload(event.bannerImageUrl);
   res.status(204).end();
 };

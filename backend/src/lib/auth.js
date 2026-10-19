@@ -1,14 +1,40 @@
 import jwt from "jsonwebtoken";
-import { db } from "./db.js";
+import { getUserById } from "./db.js";
 
-const JWT_SECRET = () => process.env.JWT_SECRET || "eventsphere-dev-secret-change-me";
 const ALLOWED_DOMAIN = "kiit.ac.in";
+const DEV_SECRET = "eventsphere-dev-secret-change-me";
+
+export const isProduction = () => process.env.NODE_ENV === "production";
+
+/** Dev login defaults to on locally and off in production; ALLOW_DEV_LOGIN overrides either way. */
+export const devLoginEnabled = () =>
+  process.env.ALLOW_DEV_LOGIN ? process.env.ALLOW_DEV_LOGIN === "true" : !isProduction();
+
+const jwtSecret = () => process.env.JWT_SECRET || DEV_SECRET;
+
+/** Refuses to start in production with unsafe settings. Returns warnings for dev. */
+export function checkAuthConfig() {
+  const problems = [];
+  if (isProduction()) {
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+      problems.push("JWT_SECRET must be set to a random string of at least 32 characters.");
+    }
+    if (!process.env.GOOGLE_CLIENT_ID && !devLoginEnabled()) {
+      problems.push("Set GOOGLE_CLIENT_ID (or ALLOW_DEV_LOGIN=true for a demo) so users can log in.");
+    }
+    if (problems.length) throw new Error(`Unsafe production config:\n - ${problems.join("\n - ")}`);
+  }
+  const warnings = [];
+  if (!process.env.JWT_SECRET) warnings.push("JWT_SECRET not set; using an insecure development secret.");
+  if (devLoginEnabled()) warnings.push("Dev login is ON: anyone can sign in as any @kiit.ac.in email.");
+  return warnings;
+}
 
 export const isKiitEmail = (email = "") =>
   email.toLowerCase().trim().endsWith(`@${ALLOWED_DOMAIN}`);
 
 export const signToken = (user) =>
-  jwt.sign({ sub: user.id }, JWT_SECRET(), { expiresIn: "7d" });
+  jwt.sign({ sub: user.id }, jwtSecret(), { expiresIn: "7d" });
 
 /** Attaches req.user when a valid Bearer token is present. */
 export function optionalAuth(req, _res, next) {
@@ -16,8 +42,8 @@ export function optionalAuth(req, _res, next) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (token) {
     try {
-      const { sub } = jwt.verify(token, JWT_SECRET());
-      req.user = db().users.find((u) => u.id === sub) || null;
+      const { sub } = jwt.verify(token, jwtSecret());
+      req.user = getUserById(sub);
     } catch {
       req.user = null;
     }

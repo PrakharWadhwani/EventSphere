@@ -1,5 +1,5 @@
 import webpush from "web-push";
-import { db, save } from "./db.js";
+import { db, getSetting, setSetting } from "./db.js";
 
 let publicKey = null;
 
@@ -8,15 +8,13 @@ let publicKey = null;
  * persists it in the DB so existing browser subscriptions stay valid.
  */
 export function initPush() {
-  const store = db();
   let keys =
     process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
       ? { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY }
-      : store.vapidKeys;
+      : JSON.parse(getSetting("vapidKeys") || "null");
   if (!keys) {
     keys = webpush.generateVAPIDKeys();
-    store.vapidKeys = keys;
-    save();
+    setSetting("vapidKeys", JSON.stringify(keys));
   }
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT || "mailto:eventsphere@kiit.ac.in",
@@ -28,37 +26,35 @@ export function initPush() {
 
 export const getPublicKey = () => publicKey;
 
-/** Sends a "new event" push to every follower of the event's society. */
+/** Sends a "new event" push to every follower of the event's society. Returns devices reached. */
 export async function notifyFollowers(event) {
-  const store = db();
-  const society = store.societies.find((s) => s.id === event.societyId);
-  const followerIds = new Set(
-    store.users.filter((u) => (u.following || []).includes(event.societyId)).map((u) => u.id)
-  );
-  const targets = store.pushSubscriptions.filter((s) => followerIds.has(s.userId));
+  const targets = db()
+    .prepare(`SELECT p.endpoint, p.subscription FROM push_subscriptions p
+      JOIN follows f ON f.user_id = p.user_id WHERE f.society_id = ?`)
+    .all(event.societyId);
   if (targets.length === 0) return 0;
 
   const payload = JSON.stringify({
-    title: `New event from ${society?.name || "a society you follow"}`,
+    title: `New event from ${event.society?.name || "a society you follow"}`,
     body: `${event.title} · ${event.date} at ${event.venue}`,
     url: `/events/${event.id}`,
     icon: "/favicon.svg",
   });
 
+  let delivered = 0;
   const expired = [];
   await Promise.all(
     targets.map((t) =>
-      webpush.sendNotification(t.subscription, payload).catch((err) => {
-        if (err.statusCode === 404 || err.statusCode === 410) expired.push(t.subscription.endpoint);
-        else console.warn("Push failed:", err.statusCode || err.message);
-      })
+      webpush
+        .sendNotification(JSON.parse(t.subscription), payload, { TTL: 60 * 60 * 24 })
+        .then(() => delivered++)
+        .catch((err) => {
+          if (err.statusCode === 404 || err.statusCode === 410) expired.push(t.endpoint);
+          else console.warn("Push failed:", err.statusCode || err.message);
+        })
     )
   );
-  if (expired.length) {
-    store.pushSubscriptions = store.pushSubscriptions.filter(
-      (s) => !expired.includes(s.subscription.endpoint)
-    );
-    save();
-  }
-  return targets.length - expired.length;
+  const del = db().prepare("DELETE FROM push_subscriptions WHERE endpoint = ?");
+  expired.forEach((e) => del.run(e));
+  return delivered;
 }
