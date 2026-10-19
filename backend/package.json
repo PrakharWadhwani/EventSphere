@@ -24,8 +24,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "seed": "node scripts/reset-db.js",
-    "test": "node --test",
-    "loadtest": "node scripts/load-test.js"
+    "test": "node --test \"test/**/*.test.js\"",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
