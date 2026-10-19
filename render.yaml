@@ -1,0 +1,24 @@
+# Render Blueprint: New > Blueprint > pick this repo.
+# A persistent disk needs a paid instance (Starter). On the free plan, remove the
+# `disk` block; the database then resets on every deploy/restart (fine for a demo,
+# since it re-seeds automatically).
+services:
+  - type: web
+    name: eventsphere
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/v1/health
+    disk:
+      name: eventsphere-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      # Set to "true" for the class demo so anyone can use the email login.
+      - key: ALLOW_DEV_LOGIN
+        value: "false"
