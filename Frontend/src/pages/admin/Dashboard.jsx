@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PlusCircle, Pencil, Trash2, Eye, Send } from 'lucide-react';
+import { PlusCircle, Pencil, Trash2, Eye, Send, Archive } from 'lucide-react';
 import { getMyEvents, deleteEvent, updateEvent, getSocieties } from '../../api/events';
 import { useAuth } from '../../context/AuthContext';
 import { Spinner, ErrorBanner, EmptyState } from '../../components/Spinner';
@@ -32,10 +32,15 @@ export const AdminDashboard = () => {
     }
   };
 
-  const handlePublish = async (event) => {
+  const setStatus = async (event, status) => {
+    setError('');
     try {
-      const { notified } = await updateEvent(event.id, { status: 'Published' });
-      setNotice(`"${event.title}" published. ${notified} follower device${notified === 1 ? '' : 's'} notified.`);
+      const { notified } = await updateEvent(event.id, { status });
+      setNotice(
+        status === 'Published'
+          ? `"${event.title}" published. ${notified} follower device${notified === 1 ? '' : 's'} notified.`
+          : `"${event.title}" archived. It no longer appears in the student feed.`
+      );
       load();
     } catch (err) {
       setError(err.message);
@@ -44,6 +49,7 @@ export const AdminDashboard = () => {
 
   const today = todayISO();
   const drafts = events?.filter((e) => e.status === 'Draft').length || 0;
+  const archived = events?.filter((e) => e.status === 'Archived').length || 0;
   const upcoming = events?.filter((e) => e.status === 'Published' && e.date >= today).length || 0;
 
   return (
@@ -53,7 +59,7 @@ export const AdminDashboard = () => {
           <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide">Society Portal</p>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">{societyName || 'Your society'}</h1>
           <p className="text-sm text-slate-400">
-            {upcoming} upcoming published · {drafts} draft{drafts === 1 ? '' : 's'}
+            {upcoming} upcoming published · {drafts} draft{drafts === 1 ? '' : 's'} · {archived} archived
           </p>
         </div>
         <Link
@@ -81,7 +87,11 @@ export const AdminDashboard = () => {
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                      e.status === 'Draft' ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/15 text-emerald-300'
+                      {
+                        Draft: 'bg-amber-500/20 text-amber-300',
+                        Published: 'bg-emerald-500/15 text-emerald-300',
+                        Archived: 'bg-slate-700 text-slate-300',
+                      }[e.status]
                     }`}
                   >
                     {e.status}
@@ -94,12 +104,22 @@ export const AdminDashboard = () => {
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
-                {e.status === 'Draft' && (
+                {e.status !== 'Published' && (
                   <button
-                    onClick={() => handlePublish(e)}
+                    onClick={() => setStatus(e, 'Published')}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1"
                   >
                     <Send className="w-3.5 h-3.5" /> Publish
+                  </button>
+                )}
+                {e.status === 'Published' && (
+                  <button
+                    onClick={() => setStatus(e, 'Archived')}
+                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                    title="Archive"
+                    aria-label="Archive"
+                  >
+                    <Archive className="w-4 h-4" />
                   </button>
                 )}
                 <Link to={`/events/${e.id}`} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800" title="View" aria-label="View">

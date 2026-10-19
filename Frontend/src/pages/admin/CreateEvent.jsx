@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PlusCircle, Upload, CheckCircle, Link as LinkIcon, MapPin, Sparkles, Tag } from 'lucide-react';
 import { createEvent, updateEvent, getEvent } from '../../api/events';
+import { assetUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { Spinner, ErrorBanner } from '../../components/Spinner';
 
@@ -71,7 +72,7 @@ export const CreateEvent = () => {
           status: event.status,
           tags: event.tags || [],
         });
-        setImagePreview(event.bannerImageUrl || null);
+        setImagePreview(assetUrl(event.bannerImageUrl) || null);
       })
       .catch((err) => setSubmitError(err.message))
       .finally(() => setIsLoading(false));
@@ -154,7 +155,7 @@ export const CreateEvent = () => {
       const { event, notified } = isEdit ? await updateEvent(id, formData) : await createEvent(formData);
       const pushNote = notified ? ` ${notified} follower device${notified === 1 ? '' : 's'} notified.` : '';
       setSuccessMessage(
-        `${event.status === 'Draft' ? 'Draft saved' : isEdit ? 'Event updated' : 'Event published'}.${pushNote}`
+        `${{ Draft: 'Draft saved', Archived: 'Event archived' }[event.status] || (isEdit ? 'Event updated' : 'Event published')}.${pushNote}`
       );
       setTimeout(() => navigate('/admin'), 1200);
     } catch (err) {
@@ -449,6 +450,7 @@ export const CreateEvent = () => {
               >
                 <option value="Published">Published</option>
                 <option value="Draft">Draft</option>
+                <option value="Archived">Archived (hidden)</option>
               </select>
             </div>
           </div>
@@ -470,7 +472,7 @@ export const CreateEvent = () => {
           >
             <PlusCircle className="w-5 h-5" />
             <span>
-              {isSaving ? 'Saving…' : formData.status === 'Draft' ? 'Save Draft' : isEdit ? 'Save Changes' : 'Publish Event'}
+              {isSaving ? 'Saving…' : formData.status === 'Draft' ? 'Save Draft' : isEdit || formData.status === 'Archived' ? 'Save Changes' : 'Publish Event'}
             </span>
           </button>
         </div>

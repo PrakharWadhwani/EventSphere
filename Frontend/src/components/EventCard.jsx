@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock, MapPin } from 'lucide-react';
+import { assetUrl } from '../api/client';
 import { formatDate, formatTimeRange } from '../lib/format';
 
 export const FALLBACK_BANNER =
@@ -13,7 +14,7 @@ export const EventCard = ({ event, highlightTags = [], badge }) => (
   >
     <div className="relative h-40 overflow-hidden bg-slate-800">
       <img
-        src={event.bannerImageUrl || FALLBACK_BANNER}
+        src={assetUrl(event.bannerImageUrl) || FALLBACK_BANNER}
         alt=""
         loading="lazy"
         onError={(e) => {

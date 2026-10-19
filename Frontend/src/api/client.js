@@ -1,4 +1,9 @@
-const BASE_URL = `${import.meta.env.VITE_API_URL || ''}/api/v1`;
+const API_ORIGIN = import.meta.env.VITE_API_URL || '';
+const BASE_URL = `${API_ORIGIN}/api/v1`;
+
+/** Banner paths like /uploads/x.jpg live on the API server. */
+export const assetUrl = (url) => (url && url.startsWith('/uploads/') ? API_ORIGIN + url : url);
+
 const TOKEN_KEY = 'eventsphere_token';
 
 export const getToken = () => {

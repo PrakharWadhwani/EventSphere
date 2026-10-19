@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Calendar, Clock, MapPin, ExternalLink, Users, Pencil } from 'lucide-react';
 import { getEvent } from '../../api/events';
+import { assetUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { FALLBACK_BANNER } from '../../components/EventCard';
 import { FollowButton } from '../../components/FollowButton';
@@ -47,7 +48,7 @@ export const EventDetail = () => {
       <div className="rounded-3xl overflow-hidden border border-slate-800 bg-slate-900/70">
         <div className="relative h-56 sm:h-80 bg-slate-800">
           <img
-            src={event.bannerImageUrl || FALLBACK_BANNER}
+            src={assetUrl(event.bannerImageUrl) || FALLBACK_BANNER}
             alt=""
             onError={(e) => {
               e.currentTarget.src = FALLBACK_BANNER;
@@ -60,8 +61,8 @@ export const EventDetail = () => {
               <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-indigo-600/90 text-white">
                 {event.category}
               </span>
-              {event.status === 'Draft' && (
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/90 text-slate-950">Draft</span>
+              {event.status !== 'Published' && (
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/90 text-slate-950">{event.status}</span>
               )}
             </div>
             <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">{event.title}</h1>

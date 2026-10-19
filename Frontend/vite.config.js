@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': process.env.API_PROXY_TARGET || 'http://localhost:6767',
+      '/uploads': process.env.API_PROXY_TARGET || 'http://localhost:6767',
     },
   },
 })
