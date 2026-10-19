@@ -55,11 +55,14 @@ export const AuthProvider = ({ children }) => {
     return finishLogin(await api('/auth/dev-login', { method: 'POST', body: { email, name, asAdmin, societyId } }));
   };
 
-  const updateInterests = async (interests) => {
-    const { user: me } = await api('/auth/me', { method: 'PATCH', body: { interests } });
+  /** PATCH /auth/me with { interests?, name? }. */
+  const updateProfile = async (changes) => {
+    const { user: me } = await api('/auth/me', { method: 'PATCH', body: changes });
     setUser(me);
     return me;
   };
+
+  const updateInterests = (interests) => updateProfile({ interests });
 
   const toggleFollow = useCallback(
     async (societyId) => {
@@ -89,6 +92,7 @@ export const AuthProvider = ({ children }) => {
     loginWithGoogle,
     devLogin,
     updateInterests,
+    updateProfile,
     toggleFollow,
     logout,
   };

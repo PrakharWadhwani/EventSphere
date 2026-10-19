@@ -4,22 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import { getSuggestedSocieties } from '../../api/events';
 import { Sparkles, CheckCircle2, ArrowRight, UserPlus, Check } from 'lucide-react';
 import { ErrorBanner } from '../../components/Spinner';
+import { TAG_META, tagMeta } from '../../lib/tags';
 
-const TAG_META = {
-  Coding: { name: 'Coding & CP', icon: '👨‍💻' },
-  'AI/ML': { name: 'AI & Machine Learning', icon: '🤖' },
-  'Web Dev': { name: 'Web & App Development', icon: '💻' },
-  Robotics: { name: 'Robotics & Hardware', icon: '⚙️' },
-  Photography: { name: 'Photography & Film', icon: '📷' },
-  Drama: { name: 'Drama & Theatre', icon: '🎭' },
-  Music: { name: 'Music & Bands', icon: '🎸' },
-  Dance: { name: 'Dance', icon: '💃' },
-  Debating: { name: 'Debating & MUN', icon: '🎙️' },
-  Finance: { name: 'Finance & Markets', icon: '📈' },
-  Quizzing: { name: 'Quizzing & Trivia', icon: '🧠' },
-  'Public Speaking': { name: 'Public Speaking', icon: '📢' },
-  Design: { name: 'Design & UI/UX', icon: '🎨' },
-};
 
 export const Onboarding = () => {
   const { interests, updateInterests, config, following, toggleFollow } = useAuth();
@@ -111,7 +97,7 @@ export const Onboarding = () => {
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-10">
               {tags.map((id) => {
-                const meta = TAG_META[id] || { name: id, icon: '✨' };
+                const meta = tagMeta(id);
                 const isSelected = selectedInterests.includes(id);
                 return (
                   <button

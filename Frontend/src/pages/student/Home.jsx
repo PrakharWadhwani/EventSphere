@@ -84,7 +84,7 @@ export const StudentHome = () => {
                   #{tag}
                 </span>
               ))}
-              <Link to="/onboarding" className="text-[11px] text-slate-400 underline hover:text-white">
+              <Link to="/profile" className="text-[11px] text-slate-400 underline hover:text-white">
                 Edit
               </Link>
             </div>

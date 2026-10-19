@@ -13,7 +13,7 @@ export const ProtectedRoute = ({ children, requireOnboarded = true }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requireOnboarded && !user.onboarded) {
+  if (requireOnboarded && !user.onboarded && !user.isAdmin) {
     return <Navigate to="/onboarding" replace />;
   }
 

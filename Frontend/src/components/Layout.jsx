@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Sparkles, LogOut, Compass, Search, Users, LayoutDashboard } from 'lucide-react';
+import { Sparkles, LogOut, Compass, Search, Users, LayoutDashboard, UserCircle } from 'lucide-react';
 import { PushPrompt } from './PushPrompt';
 
 const navItems = (isAdmin) => [
@@ -9,6 +9,7 @@ const navItems = (isAdmin) => [
   { to: '/search', label: 'Search', icon: Search },
   { to: '/societies', label: 'Societies', icon: Users },
   ...(isAdmin ? [{ to: '/admin', label: 'Admin', icon: LayoutDashboard }] : []),
+  { to: '/profile', label: 'Profile', icon: UserCircle, mobileOnly: true },
 ];
 
 const linkClass = ({ isActive }) =>
@@ -53,7 +54,7 @@ export const Layout = ({ children }) => {
           {isAuthenticated && (
             <div className="flex items-center gap-3 md:gap-4">
               <nav className="hidden md:flex items-center gap-2">
-                {navItems(isAdmin).map(({ to, label, icon: Icon }) => (
+                {navItems(isAdmin).filter((i) => !i.mobileOnly).map(({ to, label, icon: Icon }) => (
                   <NavLink key={to} to={to} className={linkClass}>
                     <Icon className="w-3.5 h-3.5" />
                     {label}
@@ -62,7 +63,11 @@ export const Layout = ({ children }) => {
               </nav>
 
               {/* User Profile Badge */}
-              <div className="hidden lg:flex items-center gap-2.5 pl-2 border-l border-slate-800">
+              <Link
+                to="/profile"
+                title="Your profile"
+                className="hidden lg:flex items-center gap-2.5 pl-2 border-l border-slate-800 hover:opacity-80"
+              >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-inner">
                   {name ? name.charAt(0).toUpperCase() : 'K'}
                 </div>
@@ -73,7 +78,7 @@ export const Layout = ({ children }) => {
                   </p>
                   <p className="text-[10px] text-slate-400 truncate max-w-[140px]">{email}</p>
                 </div>
-              </div>
+              </Link>
 
               <button
                 onClick={handleLogout}

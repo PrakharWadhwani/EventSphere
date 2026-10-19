@@ -11,6 +11,7 @@ import { StudentHome } from './pages/student/Home';
 import { SearchPage } from './pages/student/Search';
 import { EventDetail } from './pages/student/EventDetail';
 import { SocietiesList, SocietyProfile } from './pages/student/Societies';
+import { Profile } from './pages/student/Profile';
 
 import { AdminLogin } from './pages/admin/Login';
 import { AdminDashboard } from './pages/admin/Dashboard';
@@ -40,6 +41,7 @@ function App() {
             <Route path="/events/:id" element={protect(<EventDetail />)} />
             <Route path="/societies" element={protect(<SocietiesList />)} />
             <Route path="/societies/:id" element={protect(<SocietyProfile />)} />
+            <Route path="/profile" element={protect(<Profile />)} />
 
             {/* Admin Routes */}
             <Route path="/admin/login" element={<AdminLogin />} />
