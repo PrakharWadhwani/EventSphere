@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
-import { useAuth, GOOGLE_CLIENT_ID } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { getSocieties } from '../../api/events';
 import { Shield, ArrowRight, Lock } from 'lucide-react';
-import { ErrorBanner } from '../../components/Spinner';
+import { ErrorBanner, Spinner } from '../../components/Spinner';
 
 const inputClass =
   'w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all';
 
 export const AdminLogin = () => {
-  const { loginWithGoogle, devLogin, config, isAdmin } = useAuth();
+  const { loginWithGoogle, devLogin, config, googleClientId, isAdmin, isLoading } = useAuth();
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState('');
   const [testEmail, setTestEmail] = useState('');
@@ -27,6 +27,7 @@ export const AdminLogin = () => {
       .catch((err) => setErrorMessage(err.message));
   }, []);
 
+  if (isLoading) return <Spinner />;
   if (isAdmin) return <Navigate to="/admin" replace />;
 
   const run = async (fn) => {
@@ -89,7 +90,7 @@ export const AdminLogin = () => {
             </div>
           )}
 
-          {GOOGLE_CLIENT_ID && (
+          {googleClientId && (
             <div className="flex justify-center">
               <GoogleLogin
                 onSuccess={({ credential }) => run(() => loginWithGoogle(credential, { asAdmin: true, societyId }))}

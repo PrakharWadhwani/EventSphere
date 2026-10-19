@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
-import { useAuth, GOOGLE_CLIENT_ID } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { ShieldCheck, ArrowRight, Sparkles } from 'lucide-react';
-import { ErrorBanner } from '../../components/Spinner';
+import { ErrorBanner, Spinner } from '../../components/Spinner';
 
 export const StudentLogin = () => {
-  const { loginWithGoogle, devLogin, config, isAuthenticated, user } = useAuth();
+  const { loginWithGoogle, devLogin, config, googleClientId, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [errorMessage, setErrorMessage] = useState('');
@@ -18,6 +18,7 @@ export const StudentLogin = () => {
     navigate(me.onboarded ? from || '/home' : '/onboarding', { replace: true });
   };
 
+  if (isLoading) return <Spinner />;
   if (isAuthenticated) return <Navigate to={user.onboarded ? '/home' : '/onboarding'} replace />;
 
   const run = async (fn) => {
@@ -58,7 +59,7 @@ export const StudentLogin = () => {
         </div>
 
         <div className="space-y-4 relative">
-          {GOOGLE_CLIENT_ID && (
+          {googleClientId && (
             <div className="flex justify-center">
               <GoogleLogin
                 onSuccess={({ credential }) => run(() => loginWithGoogle(credential))}
@@ -73,7 +74,7 @@ export const StudentLogin = () => {
 
           {config.devLoginEnabled && (
             <>
-              {GOOGLE_CLIENT_ID && (
+              {googleClientId && (
                 <div className="relative my-6 text-center">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-slate-800" />
@@ -116,7 +117,7 @@ export const StudentLogin = () => {
             </>
           )}
 
-          {!GOOGLE_CLIENT_ID && !config.devLoginEnabled && (
+          {!googleClientId && !config.devLoginEnabled && (
             <p className="text-xs text-slate-400 text-center">Login is not configured on this server.</p>
           )}
         </div>

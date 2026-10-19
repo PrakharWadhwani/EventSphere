@@ -5,11 +5,12 @@ import { followSociety, unfollowSociety } from '../api/events';
 
 const AuthContext = createContext(null);
 
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+// Build-time override; otherwise the server's GOOGLE_CLIENT_ID (from /auth/config) is used.
+const BUILD_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [config, setConfig] = useState({ devLoginEnabled: true, interestTags: [] });
+  const [config, setConfig] = useState({ devLoginEnabled: false, googleClientId: null, interestTags: [] });
   const [isLoading, setIsLoading] = useState(true);
 
   // Restore session from a stored token on first load.
@@ -36,6 +37,8 @@ export const AuthProvider = ({ children }) => {
       cancelled = true;
     };
   }, []);
+
+  const googleClientId = BUILD_GOOGLE_CLIENT_ID || config.googleClientId || '';
 
   const finishLogin = ({ token, user: me }) => {
     setToken(token);
@@ -83,6 +86,7 @@ export const AuthProvider = ({ children }) => {
     user,
     config,
     isLoading,
+    googleClientId,
     isAuthenticated: !!user,
     name: user?.name || '',
     email: user?.email || '',
@@ -98,7 +102,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const content = <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-  return GOOGLE_CLIENT_ID ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{content}</GoogleOAuthProvider> : content;
+  return googleClientId ? <GoogleOAuthProvider clientId={googleClientId}>{content}</GoogleOAuthProvider> : content;
 };
 
 export const useAuth = () => {
