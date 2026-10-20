@@ -5,8 +5,12 @@ This follows the PRD's success path: login → onboarding → feed → search �
 ## Before the demo
 
 - [ ] Run `npm run seed` in `backend/` the same morning, so "Happening Today" has events on the right date.
-- [ ] Use **Chrome**. Open two windows side by side: a normal window (student) and a second Chrome profile or guest window (society rep). They must not share a login.
-- [ ] In the student window, allow notifications for the site (lock icon → Notifications → Allow).
+- [ ] Open two windows side by side. They must not share a login:
+  - **Student**: a *normal* Chrome or Edge window. Only this window enables notifications.
+  - **Society rep**: an Incognito/Private window. It only publishes and never needs notification permission (Incognito can't grant it).
+- [ ] Don't use Brave as the student window unless `brave://settings/privacy` → "Use Google services for push messaging" is on (then relaunch Brave).
+- [ ] In the student window, follow the society, then **Profile → Enable notifications** should read "On".
+- [ ] Windows Settings → System → Notifications: Chrome/Edge allowed, Do not disturb off.
 - [ ] Check the Wi-Fi connection. Seed banners load from Unsplash, so the cards look empty offline.
 - [ ] Keep a backup recording of the full flow in case the network fails.
 
