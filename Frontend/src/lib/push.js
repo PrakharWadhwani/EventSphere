@@ -26,10 +26,21 @@ export async function enablePush() {
   const { publicKey } = await api('/push/public-key');
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    });
+    try {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    } catch (err) {
+      // AbortError = the browser's push service refused (Incognito/Guest windows,
+      // Brave with Google push disabled, or a network blocking Google's push servers).
+      if (err.name === 'AbortError') {
+        throw new Error(
+          "Your browser's push service is unavailable. Use a normal (not Incognito or Guest) Chrome or Edge window; in Brave, enable \"Use Google services for push messaging\"."
+        );
+      }
+      throw err;
+    }
   }
   await api('/push/subscribe', { method: 'POST', body: { subscription: subscription.toJSON() } });
   return subscription;
