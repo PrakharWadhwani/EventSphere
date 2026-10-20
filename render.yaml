@@ -1,17 +1,15 @@
 # Render Blueprint: New > Blueprint > pick this repo.
-# A persistent disk needs a paid instance (Starter). On the free plan, remove the
-# `disk` block; the database then resets on every deploy/restart (fine for a demo,
-# since it re-seeds automatically).
+#
+# Free plan: no persistent disk, so the SQLite database re-seeds on every restart or
+# deploy, and the instance sleeps after 15 minutes idle (the first request then takes
+# about a minute). For permanent data, switch to `plan: starter` and add:
+#   disk: { name: eventsphere-data, mountPath: /data, sizeGB: 1 }
 services:
   - type: web
     name: eventsphere
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/v1/health
-    disk:
-      name: eventsphere-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: JWT_SECRET
         generateValue: true
@@ -19,6 +17,13 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
-      # Set to "true" for the class demo so anyone can use the email login.
+      # Fixed Web Push keys, so notifications keep working across restarts.
+      # Generate once with: npx web-push generate-vapid-keys
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # Email-only demo login, for the class demo. Anyone can then sign in as any
+      # @kiit.ac.in address or society rep, so set it to "false" afterwards.
       - key: ALLOW_DEV_LOGIN
-        value: "false"
+        value: "true"

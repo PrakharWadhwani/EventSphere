@@ -71,7 +71,7 @@ Society IDs: `soc_krs`, `soc_fed`, `soc_gdg`, `soc_kalakaar`, `soc_kmc`, `soc_kf
 There are two ways:
 
 - **Docker**: `docker build -t eventsphere .` then `docker run -p 8080:8080 -v eventsphere-data:/data -e JWT_SECRET=... eventsphere`.
-- **Render**: `render.yaml` is a Blueprint (New → Blueprint → this repo). It generates `JWT_SECRET` and mounts a disk at `/data`. Persistent disks need the Starter plan. On the free plan, remove the `disk` block; the database will then reset to seed data on each restart.
+- **Render** (free plan): `render.yaml` is a Blueprint (New → Blueprint → this repo). It generates `JWT_SECRET`. You enter `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS` and the two VAPID keys (`npx web-push generate-vapid-keys`). With no disk, the database re-seeds on every restart; see the comments in `render.yaml` to switch to a paid plan with a disk.
 
 When deployed, add the site URL to the Google OAuth client's **Authorized JavaScript origins**.
 
